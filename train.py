@@ -31,6 +31,7 @@ from transport import create_transport, Sampler
 from train_utils import parse_transport_args
 import wandb_utils
 
+from tokenizer.gstk.tools.setting import setup
 from tokenizer.gstk.tools.token_stats import TokenStatsUpdater
 from tokenizer.gstk.tools.inference import load_gstk, gaussians2tokens, tokens2gaussians, whitening_token, inverse_whitening_token
 
@@ -148,6 +149,7 @@ def main(args):
         logger = create_logger(None)
 
     # TODO: Use GSTK to replace VAE
+    setup()
     token_stats = TokenStatsUpdater(load=True, device=device)
     config = OmegaConf.load("tokenizer_ckpt/test1-101/config.yaml")
     gstk = load_gstk(config, ckpt_path="tokenizer_ckpt/test1-101/checkpoints/epoch=12-step=260247.ckpt", device=device)
@@ -230,7 +232,7 @@ def main(args):
     use_cfg = args.cfg_scale > 1.0
     # Create sampling noise:
     n = ys.size(0)
-    zs = torch.randn(n, 5+gstk.feature_dim, gstk.num_gs, device=device) # [num_cls, C, H, W]
+    zs = torch.randn(n, gstk.num_gs, 5+gstk.feature_dim, device=device) # [num_cls, C, H, W]
 
     # Setup classifier-free guidance:
     if use_cfg:

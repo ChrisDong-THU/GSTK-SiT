@@ -8,7 +8,6 @@ import torch
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 from torchvision.utils import save_image
-from diffusers.models import AutoencoderKL
 from download import find_model
 from models import SiT_models
 from train_utils import parse_ode_args, parse_sde_args, parse_transport_args
@@ -16,6 +15,11 @@ from transport import create_transport, Sampler
 import argparse
 import sys
 from time import time
+from omegaconf import OmegaConf
+
+from tokenizer.gstk.tools.setting import setup
+from tokenizer.gstk.tools.token_stats import TokenStatsUpdater
+from tokenizer.gstk.tools.inference import load_gstk, tokens2gaussians, inverse_whitening_token
 
 
 def main(mode, args):
@@ -29,20 +33,20 @@ def main(mode, args):
         assert args.image_size in [256, 512]
         assert args.num_classes == 1000
         assert args.image_size == 256, "512x512 models are not yet available for auto-download." # remove this line when 512x512 models are available
-        learn_sigma = args.image_size == 256
-    else:
-        learn_sigma = False
+        
+    setup()
+    token_stats = TokenStatsUpdater(load=True, device=device)
+    config = OmegaConf.load("tokenizer_ckpt/test1-101/config.yaml")
+    gstk = load_gstk(config, ckpt_path="tokenizer_ckpt/test1-101/checkpoints/epoch=12-step=260247.ckpt", device=device)
 
     # Load model:
-    latent_size = args.image_size // 8
     model = SiT_models[args.model](
-        input_size=latent_size,
-        num_classes=args.num_classes,
-        learn_sigma=learn_sigma,
+        codelen=gstk.num_gs,
+        codesize=5+gstk.feature_dim,
+        num_classes=args.num_classes
     ).to(device)
     # Auto-download a pre-trained model or load a custom SiT checkpoint from train.py:
-    ckpt_path = args.ckpt or f"SiT-XL-2-{args.image_size}x{args.image_size}.pt"
-    state_dict = find_model(ckpt_path)
+    state_dict = find_model(args.ckpt)
     model.load_state_dict(state_dict)
     model.eval()  # important!
     transport = create_transport(
@@ -80,16 +84,13 @@ def main(mode, args):
             last_step_size=args.last_step_size,
             num_steps=args.num_sampling_steps,
         )
-    
-
-    vae = AutoencoderKL.from_pretrained(f"stabilityai/sd-vae-ft-{args.vae}").to(device)
 
     # Labels to condition the model with (feel free to change):
     class_labels = [207, 360, 387, 974, 88, 979, 417, 279]
     
     # Create sampling noise:
     n = len(class_labels)
-    z = torch.randn(n, 4, latent_size, latent_size, device=device)
+    z = torch.randn(n, gstk.num_gs, 5+gstk.feature_dim, device=device)
     y = torch.tensor(class_labels, device=device)
 
     # Setup classifier-free guidance:
@@ -102,7 +103,11 @@ def main(mode, args):
     start_time = time()
     samples = sample_fn(z, model.forward_with_cfg, **model_kwargs)[-1]
     samples, _ = samples.chunk(2, dim=0)  # Remove null class samples
-    samples = vae.decode(samples / 0.18215).sample
+    
+    samples = inverse_whitening_token(samples, token_stats.mu, token_stats.Sigma)
+    gaussians = tokens2gaussians(samples)
+    samples = gstk.decode_gaussian(gaussians)
+    
     print(f"Sampling took {time() - start_time:.2f} seconds.")
 
     # Save and display images:
@@ -122,7 +127,6 @@ if __name__ == "__main__":
     assert mode in ["ODE", "SDE"], "Invalid mode. Please choose 'ODE' or 'SDE'"
     
     parser.add_argument("--model", type=str, choices=list(SiT_models.keys()), default="SiT-XL/2")
-    parser.add_argument("--vae", type=str, choices=["ema", "mse"], default="mse")
     parser.add_argument("--image-size", type=int, choices=[256, 512], default=256)
     parser.add_argument("--num-classes", type=int, default=1000)
     parser.add_argument("--cfg-scale", type=float, default=4.0)

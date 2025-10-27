@@ -26,5 +26,21 @@
                 "PROJECT":"gstk-sit"
             },
         },
+        {
+            "name": "Sample",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/sample.py",
+            "console": "integratedTerminal",
+            "args": [
+                "ODE",
+                "--model",
+                "SiT-XL/2",
+                "--num-sampling-steps",
+                "100"
+            ],
+            "env": {
+            },
+        }
     ]
 }
