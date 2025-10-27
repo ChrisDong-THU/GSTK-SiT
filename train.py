@@ -148,7 +148,7 @@ def main(args):
         logger = create_logger(None)
 
     # TODO: Use GSTK to replace VAE
-    token_stats = TokenStatsUpdater(save_path="tokenizer_ckpt/test1-101/token_stats.pth", load=True, device=device)
+    token_stats = TokenStatsUpdater(load=True, device=device)
     config = OmegaConf.load("tokenizer_ckpt/test1-101/config.yaml")
     gstk = load_gstk(config, ckpt_path="tokenizer_ckpt/test1-101/checkpoints/epoch=12-step=260247.ckpt", device=device)
     
