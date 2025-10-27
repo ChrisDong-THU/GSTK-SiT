@@ -23,13 +23,16 @@ from time import time
 import argparse
 import logging
 import os
+from omegaconf import OmegaConf
 
 from models import SiT_models
 from download import find_model
 from transport import create_transport, Sampler
-from diffusers.models import AutoencoderKL
 from train_utils import parse_transport_args
 import wandb_utils
+
+from tokenizer.gstk.tools.token_stats import TokenStatsUpdater
+from tokenizer.gstk.tools.inference import load_gstk, gaussians2tokens, tokens2gaussians, whitening_token, inverse_whitening_token
 
 
 #################################################################################
@@ -144,11 +147,16 @@ def main(args):
     else:
         logger = create_logger(None)
 
+    # TODO: Use GSTK to replace VAE
+    token_stats = TokenStatsUpdater(save_path="tokenizer_ckpt/test1-101/token_stats.pth", load=True, device=device)
+    config = OmegaConf.load("tokenizer_ckpt/test1-101/config.yaml")
+    gstk = load_gstk(config, ckpt_path="tokenizer_ckpt/test1-101/checkpoints/epoch=12-step=260247.ckpt", device=device)
+    
     # Create model:
     assert args.image_size % 8 == 0, "Image size must be divisible by 8 (for the VAE encoder)."
-    latent_size = args.image_size // 8
     model = SiT_models[args.model](
-        input_size=latent_size,
+        codelen=gstk.num_gs,
+        codesize=5+gstk.feature_dim,
         num_classes=args.num_classes
     )
 
@@ -175,8 +183,6 @@ def main(args):
     )  # default: velocity; 
     transport_sampler = Sampler(transport)
     
-    # TODO: Use GSTK to replace VAE
-    vae = AutoencoderKL.from_pretrained(f"stabilityai/sd-vae-ft-{args.vae}").to(device)
     logger.info(f"SiT Parameters: {sum(p.numel() for p in model.parameters()):,}")
 
     # Setup optimizer (we used default Adam betas=(0.9, 0.999) and a constant learning rate of 1e-4 in our paper):
@@ -224,7 +230,7 @@ def main(args):
     use_cfg = args.cfg_scale > 1.0
     # Create sampling noise:
     n = ys.size(0)
-    zs = torch.randn(n, 4, latent_size, latent_size, device=device)
+    zs = torch.randn(n, 5+gstk.feature_dim, gstk.num_gs, device=device) # [num_cls, C, H, W]
 
     # Setup classifier-free guidance:
     if use_cfg:
@@ -246,8 +252,10 @@ def main(args):
             y = y.to(device)
             with torch.no_grad():
                 # TODO: Use GSTK to replace VAE
-                # Map input images to latent space + normalize latents:
-                x = vae.encode(x).latent_dist.sample().mul_(0.18215)
+                _, gaussians = gstk.encode(x)
+                x = gaussians2tokens(gaussians)
+                x = whitening_token(x, token_stats.mu, token_stats.Sigma)
+                
             model_kwargs = dict(y=y)
             loss_dict = transport.training_losses(model, x, model_kwargs)
             loss = loss_dict["loss"].mean()
@@ -302,7 +310,11 @@ def main(args):
 
                 if use_cfg: #remove null samples
                     samples, _ = samples.chunk(2, dim=0)
-                samples = vae.decode(samples / 0.18215).sample
+                
+                samples = inverse_whitening_token(samples, token_stats.mu, token_stats.Sigma)
+                gaussians = tokens2gaussians(samples)
+                
+                samples = gstk.decode_gaussian(gaussians)
                 out_samples = torch.zeros((args.global_batch_size, 3, args.image_size, args.image_size), device=device)
                 dist.all_gather_into_tensor(out_samples, samples)
                 if args.wandb:

@@ -1,0 +1,30 @@
+{
+    // 使用 IntelliSense 了解相关属性。 
+    // 悬停以查看现有属性的描述。
+    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Train",
+            "type": "debugpy",
+            "request": "launch",
+            "console": "integratedTerminal",
+            "module": "torch.distributed.run",
+            "justMyCode": true, //调试库代码
+            "subProcess": true,
+            "args": [
+                "${workspaceFolder}/train.py",
+                "--model",
+                "SiT-XL/2",
+                "--data-path",
+                "/data1/data/imagenet/train",
+                "--wandb"
+            ],
+            "env": {
+                "WANDB_MODE":"offline",
+                "ENTITY":"chrisdong",
+                "PROJECT":"gstk-sit"
+            },
+        },
+    ]
+}

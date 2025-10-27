@@ -160,6 +160,7 @@ class SiT(nn.Module):
 
         self.num_heads = num_heads
 
+        self.x_embedder = nn.Linear(codesize, hidden_size, bias=True)
         self.t_embedder = TimestepEmbedder(hidden_size)
         self.y_embedder = LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
         # Will use fixed sin-cos embedding:
@@ -184,11 +185,10 @@ class SiT(nn.Module):
         pos_embed = get_1d_sincos_pos_embed(self.pos_embed.shape[-1], self.codelen)
         self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
 
-        # Initialize patch_embed like nn.Linear (instead of nn.Conv2d):
-        w = self.x_embedder.proj.weight.data
-        nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
-        nn.init.constant_(self.x_embedder.proj.bias, 0)
-
+        # Initialize input embedding layer:
+        nn.init.normal_(self.x_embedder.weight, std=0.02)
+        nn.init.constant_(self.x_embedder.bias, 0)
+        
         # Initialize label embedding table:
         nn.init.normal_(self.y_embedder.embedding_table.weight, std=0.02)
 
@@ -215,7 +215,7 @@ class SiT(nn.Module):
         y: (N,) tensor of class labels
         """
         # TODO: No need for patchify 
-        x = x + self.pos_embed  # (N, T, D), where T = codelen
+        x = self.x_embedder(x) + self.pos_embed  # (N, T, D), where T = codelen
         t = self.t_embedder(t)                   # (N, D)
         y = self.y_embedder(y, self.training)    # (N, D)
         c = t + y                                # (N, D)
@@ -317,40 +317,40 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
 #################################################################################
 
 def SiT_XL_2(**kwargs):
-    return SiT(depth=28, hidden_size=1152, patch_size=2, num_heads=16, **kwargs)
+    return SiT(depth=28, hidden_size=1152, num_heads=16, **kwargs)
 
 def SiT_XL_4(**kwargs):
-    return SiT(depth=28, hidden_size=1152, patch_size=4, num_heads=16, **kwargs)
+    return SiT(depth=28, hidden_size=1152, num_heads=16, **kwargs)
 
 def SiT_XL_8(**kwargs):
-    return SiT(depth=28, hidden_size=1152, patch_size=8, num_heads=16, **kwargs)
+    return SiT(depth=28, hidden_size=1152, num_heads=16, **kwargs)
 
 def SiT_L_2(**kwargs):
-    return SiT(depth=24, hidden_size=1024, patch_size=2, num_heads=16, **kwargs)
+    return SiT(depth=24, hidden_size=1024, num_heads=16, **kwargs)
 
 def SiT_L_4(**kwargs):
-    return SiT(depth=24, hidden_size=1024, patch_size=4, num_heads=16, **kwargs)
+    return SiT(depth=24, hidden_size=1024, num_heads=16, **kwargs)
 
 def SiT_L_8(**kwargs):
-    return SiT(depth=24, hidden_size=1024, patch_size=8, num_heads=16, **kwargs)
+    return SiT(depth=24, hidden_size=1024, num_heads=16, **kwargs)
 
 def SiT_B_2(**kwargs):
-    return SiT(depth=12, hidden_size=768, patch_size=2, num_heads=12, **kwargs)
+    return SiT(depth=12, hidden_size=768, num_heads=12, **kwargs)
 
 def SiT_B_4(**kwargs):
-    return SiT(depth=12, hidden_size=768, patch_size=4, num_heads=12, **kwargs)
+    return SiT(depth=12, hidden_size=768, num_heads=12, **kwargs)
 
 def SiT_B_8(**kwargs):
-    return SiT(depth=12, hidden_size=768, patch_size=8, num_heads=12, **kwargs)
+    return SiT(depth=12, hidden_size=768, num_heads=12, **kwargs)
 
 def SiT_S_2(**kwargs):
-    return SiT(depth=12, hidden_size=384, patch_size=2, num_heads=6, **kwargs)
+    return SiT(depth=12, hidden_size=384, num_heads=6, **kwargs)
 
 def SiT_S_4(**kwargs):
-    return SiT(depth=12, hidden_size=384, patch_size=4, num_heads=6, **kwargs)
+    return SiT(depth=12, hidden_size=384, num_heads=6, **kwargs)
 
 def SiT_S_8(**kwargs):
-    return SiT(depth=12, hidden_size=384, patch_size=8, num_heads=6, **kwargs)
+    return SiT(depth=12, hidden_size=384, num_heads=6, **kwargs)
 
 
 SiT_models = {
