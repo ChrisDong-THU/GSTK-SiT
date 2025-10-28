@@ -276,6 +276,7 @@ class Sampler:
 
         return last_step_fn
 
+    @th.inference_mode()
     def sample_sde(
         self,
         *,
@@ -338,6 +339,7 @@ class Sampler:
 
         return _sample
     
+    @th.inference_mode()
     def sample_ode(
         self,
         *,
@@ -383,6 +385,7 @@ class Sampler:
         
         return _ode.sample
 
+    @th.inference_mode()
     def sample_ode_likelihood(
         self,
         *,

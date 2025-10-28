@@ -176,6 +176,7 @@ def main(args):
     requires_grad(ema, False)
     
     model = DDP(model.to(device), device_ids=[rank])
+    
     transport = create_transport(
         args.path_type,
         args.prediction,
@@ -184,6 +185,7 @@ def main(args):
         args.sample_eps
     )  # default: velocity; 
     transport_sampler = Sampler(transport)
+    sample_fn = transport_sampler.sample_ode() # default to ode sampling
     
     logger.info(f"SiT Parameters: {sum(p.numel() for p in model.parameters()):,}")
 
@@ -255,8 +257,9 @@ def main(args):
             with torch.no_grad():
                 # TODO: Use GSTK to replace VAE
                 _, gaussians = gstk.encode(x)
-                x = gaussians2tokens(gaussians)
-                x = whitening_token(x, token_stats.mu, token_stats.Sigma)
+            
+            x = gaussians2tokens(gaussians)
+            x = whitening_token(x, token_stats.mu, token_stats.Sigma)
                 
             model_kwargs = dict(y=y)
             loss_dict = transport.training_losses(model, x, model_kwargs)
@@ -306,7 +309,7 @@ def main(args):
             
             if train_steps % args.sample_every == 0 and train_steps > 0:
                 logger.info("Generating EMA samples...")
-                sample_fn = transport_sampler.sample_ode() # default to ode sampling
+                
                 samples = sample_fn(zs, model_fn, **sample_model_kwargs)[-1]
                 dist.barrier()
 
@@ -316,12 +319,18 @@ def main(args):
                 samples = inverse_whitening_token(samples, token_stats.mu, token_stats.Sigma)
                 gaussians = tokens2gaussians(samples)
                 
-                samples = gstk.decode_gaussian(gaussians)
+                with torch.no_grad():
+                    samples = gstk.decode_gaussian(gaussians)
+                
                 out_samples = torch.zeros((args.global_batch_size, 3, args.image_size, args.image_size), device=device)
                 dist.all_gather_into_tensor(out_samples, samples)
+                
                 if args.wandb:
-                    wandb_utils.log_image(out_samples, train_steps)
+                    wandb_utils.log_image(out_samples.cpu(), train_steps)
                 logging.info("Generating EMA samples done.")
+                
+                del gaussians, samples, out_samples
+                torch.cuda.empty_cache()
 
     model.eval()  # important! This disables randomized embedding dropout
     # do any sampling/FID calculation/etc. with ema (or model) in eval mode ...
