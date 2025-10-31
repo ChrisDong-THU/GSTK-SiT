@@ -33,7 +33,7 @@ import wandb_utils
 
 from tokenizer.gstk.tools.setting import setup
 from tokenizer.gstk.tools.token_stats import TokenStatsUpdater
-from tokenizer.gstk.tools.inference import load_gstk, gaussians2tokens, tokens2gaussians, whitening_token, inverse_whitening_token
+from tokenizer.gstk.tools.inference import load_gstk, gaussians2tokens, tokens2gaussians, whitening_token, inverse_whitening_token, uniform_token, inverse_uniform_token
 
 
 #################################################################################
@@ -258,7 +258,8 @@ def main(args):
                 _, gaussians = gstk.encode(x)
             
             x = gaussians2tokens(gaussians)
-            x = whitening_token(x, token_stats.mu, token_stats.Sigma)
+            # x = whitening_token(x, token_stats.mu, token_stats.Sigma)
+            x = uniform_token(x, token_stats.mu, token_stats.var)
                 
             model_kwargs = dict(y=y)
             loss_dict = transport.training_losses(model, x, model_kwargs)
@@ -315,7 +316,8 @@ def main(args):
                 if use_cfg: #remove null samples
                     samples, _ = samples.chunk(2, dim=0)
                 
-                samples = inverse_whitening_token(samples, token_stats.mu, token_stats.Sigma)
+                # samples = inverse_whitening_token(samples, token_stats.mu, token_stats.Sigma)
+                samples = inverse_uniform_token(samples, token_stats.mu, token_stats.var)
                 gaussians = tokens2gaussians(samples)
                 
                 with torch.no_grad():
