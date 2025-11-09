@@ -151,8 +151,8 @@ def main(args):
     # TODO: Use GSTK to replace VAE
     setup()
     token_stats = TokenStatsUpdater(load=True, device=device)
-    config = OmegaConf.load("tokenizer_ckpt/test1-101/config.yaml")
-    gstk = load_gstk(config, ckpt_path="tokenizer_ckpt/test1-101/checkpoints/epoch=12-step=260247.ckpt", device=device)
+    config = OmegaConf.load("tokenizer_ckpt/test1-n128/config.yaml")
+    gstk = load_gstk(config, ckpt_path="tokenizer_ckpt/test1-n128/checkpoints/epoch=15-step=320304.ckpt", device=device)
     
     # Create model:
     model = SiT_models[args.model](
@@ -162,11 +162,17 @@ def main(args):
     )
 
     # Note that parameter initialization is done within the SiT constructor
-    ema = deepcopy(model).to(device)  # Create an EMA of the model for use after training
+    ema = deepcopy(model)  # Create an EMA of the model for use after training
+    
+    model.to(device)
+    ema.to(device)
+    
+    # Setup optimizer (we used default Adam betas=(0.9, 0.999) and a constant learning rate of 1e-4 in our paper):
+    opt = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=0)
 
     if args.ckpt is not None:
         ckpt_path = args.ckpt
-        state_dict = find_model(ckpt_path)
+        state_dict = find_model(ckpt_path, only_ema=False)
         model.load_state_dict(state_dict["model"])
         ema.load_state_dict(state_dict["ema"])
         opt.load_state_dict(state_dict["opt"])
@@ -187,9 +193,6 @@ def main(args):
     sample_fn = transport_sampler.sample_ode() # default to ode sampling
     
     logger.info(f"SiT Parameters: {sum(p.numel() for p in model.parameters()):,}")
-
-    # Setup optimizer (we used default Adam betas=(0.9, 0.999) and a constant learning rate of 1e-4 in our paper):
-    opt = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=0)
 
     # Setup data:
     transform = transforms.Compose([
@@ -318,7 +321,7 @@ def main(args):
                 
                 # samples = inverse_whitening_token(samples, token_stats.mu, token_stats.Sigma)
                 samples = inverse_uniform_token(samples, token_stats.mu, token_stats.var)
-                gaussians = tokens2gaussians(samples)
+                gaussians = tokens2gaussians(samples, feature_dim=gstk.feature_dim)
                 
                 with torch.no_grad():
                     samples = gstk.decode_gaussian(gaussians)
